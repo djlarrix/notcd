@@ -173,6 +173,13 @@ Usa este comando en su lugar:
 powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/djlarrix/notcd/main/instalar.ps1 | iex"
 ```
 
+**«No se pudo instalar notcd».**
+El instalador muestra debajo el error real y qué significa:
+- **Un archivo estaba en uso**: primero reintenta solo (hasta tres veces, esperando entre cada intento). Si sigue ocupado, dice **qué programa lo tiene tomado**. Si es el antivirus, espera un minuto y vuelve a pegar el comando; si se repite, pide a TI que excluya la carpeta `%APPDATA%\uv` del análisis en tiempo real. Si es la app, ciérrala desde el ícono junto al reloj (a veces se abre sola al iniciar Windows).
+- **Certificados o conexión**: la red de la oficina está revisando o bloqueando las conexiones con pypi.org, files.pythonhosted.org o github.com. Pide a TI que los permita, o prueba desde otra red (por ejemplo, el teléfono como punto de acceso).
+
+Todo el detalle queda en el archivo `.notcd\instalacion.log` de tu carpeta de usuario: envíalo a quien te ayuda con la instalación.
+
 **El instalador dice que la app está abierta, pero la cerré.**
 En Windows, cerrar la ventana deja a la app corriendo junto al reloj: flechita **^** de la barra de tareas → clic derecho en el ícono de la app → **Salir**. El instalador muestra qué detectó (`detectado: …`). Si ya la cerraste y aun así insiste, pega esto en PowerShell:
 
