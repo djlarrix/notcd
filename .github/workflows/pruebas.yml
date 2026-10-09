@@ -1,0 +1,106 @@
+name: pruebas
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  pruebas:
+    name: pruebas (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev
+      - run: uv run pytest -q
+
+  extension:
+    name: extensión .mcpb (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: uv sync --extra dev
+      - name: Armar la extensión (valida el manifiesto con mcpb)
+        run: uv run python scripts/empaquetar.py
+      - name: Instalarla y conectarse como lo hace la app de escritorio
+        shell: bash
+        run: uv run python scripts/comprobar_extension.py dist/notcd-*.mcpb
+      - uses: actions/upload-artifact@v4
+        if: matrix.os == 'ubuntu-latest'
+        with:
+          name: notcd
+          path: dist/
+
+  instalador-mac:
+    name: comando de instalación (macOS)
+    if: github.event_name != 'pull_request'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: El comando de una línea, tal como lo pega un abogado
+        env:
+          NOTCD_REF: ${{ github.sha }}
+          NOTCD_SIN_LOGIN: "1"
+          NOTCD_SIN_DESKTOP: "1"
+        run: curl -fsSL "https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}/instalar.sh" | bash
+      - name: La app de código puede lanzar el servidor registrado
+        run: ~/.local/bin/uv run --no-project --with "mcp>=2.3,<3" python scripts/comprobar_instalacion.py
+      - name: Diagnóstico
+        run: ~/.local/bin/notcd diagnostico || true
+
+  instalador-windows:
+    name: comando de instalación (Windows PowerShell 5)
+    if: github.event_name != 'pull_request'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: El comando de una línea, tal como lo pega un abogado
+        shell: powershell
+        run: |
+          $env:NOTCD_REF = '${{ github.sha }}'
+          $env:NOTCD_SIN_LOGIN = '1'
+          $env:NOTCD_SIN_DESKTOP = '1'
+          irm https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}/instalar.ps1 | iex
+          if (-not (Test-Path "$env:USERPROFILE\.local\bin\notcd.exe")) { throw 'notcd no quedó instalado' }
+      - name: Simular el conector de notcd en uso (como si la app lo tuviera abierto)
+        shell: powershell
+        run: |
+          $python = Join-Path (& "$env:USERPROFILE\.local\bin\uv.exe" tool dir) 'notcd\Scripts\python.exe'
+          Start-Process -FilePath $python -ArgumentList '-c', '"import time; time.sleep(900)"', '-m', 'notcd', 'servidor' -WindowStyle Hidden
+          Start-Sleep -Seconds 3
+          $vivos = @(Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match '-m notcd servidor' })
+          if ($vivos.Count -eq 0) { throw 'no se pudo simular el conector en uso' }
+      - name: El mismo comando otra vez (actualizar con el conector en uso)
+        shell: powershell
+        run: |
+          $env:NOTCD_REF = '${{ github.sha }}'
+          $env:NOTCD_SIN_LOGIN = '1'
+          $env:NOTCD_SIN_DESKTOP = '1'
+          irm https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}/instalar.ps1 | iex
+          if (-not (Test-Path "$env:USERPROFILE\Documents\notcd\notcd.zip")) { throw 'no se generó la skill' }
+          $vivos = @(Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match '-m notcd servidor' })
+          if ($vivos.Count -ne 0) { throw 'el conector en uso no se detuvo antes de actualizar' }
+      - name: La app de código puede lanzar el servidor registrado
+        shell: powershell
+        run: |
+          & "$env:USERPROFILE\.local\bin\uv.exe" run --no-project --with "mcp>=2.3,<3" python scripts/comprobar_instalacion.py
+          if ($LASTEXITCODE -ne 0) { throw 'la comprobación falló' }
+      - name: Diagnóstico
+        shell: powershell
+        run: |
+          & "$env:USERPROFILE\.local\bin\notcd.exe" diagnostico
+          exit 0

@@ -1,0 +1,42 @@
+[project]
+name = "notcd"
+version = "0.2.0"
+description = "NotebookLM (Gemini Notebook) para el asistente de IA: servidor MCP y skill para trabajo jurídico."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Uso interno" }
+authors = [{ name = "Joaquín Larraín" }]
+dependencies = [
+  # Cliente no oficial de NotebookLM. Las correcciones por cambios de Google
+  # salen como parches (0.8.x); las versiones menores sólo retiran APIs que
+  # antes avisaron con DeprecationWarning, y notcd no usa ninguna.
+  "notebooklm-py[browser]>=0.8.4,<1.0",
+  "mcp>=2.3,<3",
+  # Para `notcd login --cookies chrome` (tomar la sesión ya abierta en el
+  # navegador). Sólo donde hay versión precompilada: en Windows ARM no la hay.
+  "rookie-cookies>=0.1.0,<1; sys_platform == 'darwin' or (sys_platform == 'win32' and platform_machine == 'AMD64')",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=0.23", "pyyaml>=6"]
+
+[project.scripts]
+notcd = "notcd.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/notcd"]
+
+# La skill vive en la raíz del repo (SKILL.md y referencias/, para que el repo mismo sirva
+# como skill) y viaja dentro del paquete para que `notcd configurar` pueda instalarla.
+[tool.hatch.build.targets.wheel.force-include]
+"SKILL.md" = "notcd/skill/SKILL.md"
+"referencias" = "notcd/skill/referencias"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+filterwarnings = ["error::DeprecationWarning:notcd.*"]

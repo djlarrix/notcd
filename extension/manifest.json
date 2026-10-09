@@ -1,0 +1,62 @@
+{
+  "manifest_version": "0.4",
+  "name": "notcd",
+  "display_name": "notcd — NotebookLM",
+  "version": "{{version}}",
+  "description": "NotebookLM (Gemini Notebook) para el asistente de IA: NotebookLM lee tus documentos y responde con citas textuales; el asistente razona, verifica y redacta.",
+  "long_description": "**notcd** conecta el asistente con NotebookLM (ahora *Gemini Notebook*) de tu cuenta de Google, para que cada IA haga lo que mejor sabe hacer.\n\n- **NotebookLM lee**: retiene expedientes de cientos de páginas o decenas de contratos y responde anclado a ellos, con el pasaje textual que respalda cada frase.\n- **El asistente piensa y escribe**: decide qué preguntar, verifica en el original y redacta.\n\nIncluye verificación mecánica de citas textuales, cuadernos configurados como lector jurídico, resúmenes en audio, mapas mentales, tablas comparativas y presentaciones.\n\nDespués de instalar, pide: *«Conéctate a NotebookLM»*. Se abrirá una ventana para entrar con tu cuenta de Google.\n\nNo es una integración oficial de Google: usa [notebooklm-py](https://github.com/teng-lin/notebooklm-py), de código abierto.",
+  "author": {
+    "name": "Joaquín Larraín"
+  },
+  "icon": "icon.png",
+  "server": {
+    "type": "uv",
+    "entry_point": "servidor_mcpb.py",
+    "mcp_config": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "${__dirname}",
+        "servidor_mcpb.py"
+      ],
+      "env": {
+        "NOTCD_DESCARGAS": "${user_config.carpeta_descargas}"
+      }
+    }
+  },
+  "tools": "{{tools}}",
+  "prompts": "{{prompts}}",
+  "user_config": {
+    "carpeta_descargas": {
+      "type": "directory",
+      "title": "Carpeta para lo que genera NotebookLM",
+      "description": "Dónde guardar audios, presentaciones, informes y tablas. Por defecto, Documentos/notcd.",
+      "default": "${DOCUMENTS}/notcd",
+      "required": false
+    }
+  },
+  "compatibility": {
+    "platforms": [
+      "darwin",
+      "win32",
+      "linux"
+    ],
+    "runtimes": {
+      "python": ">=3.10"
+    }
+  },
+  "keywords": [
+    "notebooklm",
+    "gemini notebook",
+    "abogados",
+    "derecho",
+    "expedientes",
+    "citas",
+    "google"
+  ],
+  "license": "UNLICENSED",
+  "privacy_policies": [
+    "https://policies.google.com/privacy"
+  ]
+}

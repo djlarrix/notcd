@@ -1,0 +1,4 @@
+# Los scripts de Windows viajan con CRLF tal cual (también en el ZIP de GitHub).
+*.ps1 -text
+*.bat -text
+*.sh text eol=lf
