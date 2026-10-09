@@ -102,9 +102,8 @@ function Explicar-Error($Salida, $Carpetas) {
     Write-Host ''
     if ($Salida -match 'os error 4551|Control de aplicaciones|Application Control') {
         Atencion 'Windows (Control inteligente de aplicaciones) bloqueó un archivo sin firma digital.'
-        Atencion 'Si el archivo bloqueado es un .pyd o .dll, Windows aún no reconoce esa biblioteca:'
-        Atencion 'suele aceptarla al rato, así que espera unos minutos y vuelve a pegar el comando.'
-        Atencion 'Si se repite, envía este mensaje (o el registro de abajo) a quien te ayuda con la instalación.'
+        Atencion 'notcd no debería usar nada sin firma: envía este mensaje (o el registro de abajo)'
+        Atencion 'a quien te ayuda con la instalación, para corregirlo.'
     } elseif ($Salida -match 'certificate|certificado|UnknownIssuer|invalid peer|handshake') {
         Atencion 'La red de tu oficina revisa las conexiones seguras y uv no confia en ella.'
         Atencion 'Pide al equipo de TI que permita pypi.org, files.pythonhosted.org y github.com,'
@@ -220,6 +219,7 @@ function Instalar-Notcd {
     $ErrorActionPreference = 'Continue'
     $ProgressPreference = 'SilentlyContinue'  # la barra de progreso hace lentisimas las descargas en PowerShell 5
     try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
+    $env:PYTHONUTF8 = '1'  # que Python escriba sus mensajes en UTF-8 (si no, salen acentos rotos)
 
     $Repo = 'djlarrix/notcd'
     $Ref = if ($env:NOTCD_REF) { $env:NOTCD_REF } else { 'main' }
@@ -321,6 +321,12 @@ function Instalar-Notcd {
         $home_ = if (Test-Path $cfg) { ((Get-Content $cfg | Where-Object { $_ -match '^home\s*=' }) -replace '^home\s*=\s*', '').Trim() } else { '' }
         $recrear = -not ($home_ -and (Test-Path (Join-Path $home_ 'python.exe')) -and (Test-Firmado (Join-Path $home_ 'python.exe')))
     }
+    # Desde la 0.3.0 notcd no usa nada compilado. Un entorno con bibliotecas compiladas (de
+    # una versión anterior o de un intento bloqueado por Windows) se rehace desde cero.
+    $SitePackages = Join-Path $Entorno 'Lib\site-packages'
+    if (-not $recrear -and (Test-Path $SitePackages)) {
+        $recrear = [bool](Get-ChildItem $SitePackages -Recurse -Include *.pyd, *.dll -File -ErrorAction SilentlyContinue | Select-Object -First 1)
+    }
     if ($recrear) {
         if (Test-Path $Entorno) { Remove-Item $Entorno -Recurse -Force -ErrorAction SilentlyContinue }
         & $PythonBase -m venv $Entorno 2>&1 | ForEach-Object { "$_" } | Out-File -FilePath $script:Log -Append -Encoding utf8
@@ -332,28 +338,14 @@ function Instalar-Notcd {
     }
 
     Ok 'Instalando componentes (la primera vez tarda uno o dos minutos)...'
-    # Las bibliotecas compiladas (sin firma digital) se instalan en versiones con al menos
-    # tres semanas: Windows decide si confía en un archivo sin firma según su reputación, y
-    # los recién publicados todavía no la tienen. Lo demás (como la conexión con NotebookLM,
-    # que recibe correcciones seguido) va siempre en su última versión.
-    $limite = (Get-Date).ToUniversalTime().AddDays(-21).ToString('yyyy-MM-dd')
-    $maduras = @(foreach ($paquete in 'pydantic-core', 'pydantic', 'cryptography', 'cffi', 'greenlet', 'rpds-py', 'pywin32') {
-        '--exclude-newer-package'; "$paquete=$limite"
-    })
     $instalado = $false
     for ($intento = 1; $intento -le 3; $intento++) {
         # "$_" convierte cada línea de stderr en su texto, sin el ruido que agrega PowerShell 5.
-        $salida = (& $Uv pip install --python $Py --upgrade --reinstall-package notcd @maduras $Fuente 2>&1 |
+        $salida = (& $Uv pip install --python $Py --upgrade --reinstall-package notcd $Fuente 2>&1 |
             ForEach-Object { "$_" }) -join "`n"
         $codigo = $LASTEXITCODE
         $salida | Out-File -FilePath $script:Log -Append -Encoding utf8
         if ($codigo -eq 0) { $instalado = $true; break }
-        if ($maduras.Count -gt 0 -and $salida -match 'No solution found|unsatisfiable|unexpected argument') {
-            # Sin solución con versiones antiguas (o un uv antiguo que no conoce la opción): las más nuevas.
-            $maduras = @()
-            $intento--
-            continue
-        }
         if ($salida -notmatch $script:ErrorEnUso) { break }
         Ok "Un archivo estaba ocupado; reintentando ($intento de 3)..."
         Stop-ProcesosPropios $Anterior | Out-Null
@@ -363,9 +355,9 @@ function Instalar-Notcd {
         Explicar-Error $salida @($Entorno)
         return
     }
-    # Cargar de verdad notcd y sus bibliotecas compiladas: si Windows bloquea alguna, se
-    # sabe ahora y no cuando la app intente abrir el conector.
-    $prueba = (& $Py -c "import notcd.server, notebooklm, pydantic_core; import notcd; print(notcd.__version__)" 2>&1 |
+    # Cargar de verdad notcd: si Windows bloqueara algo, se sabe ahora y no cuando la app
+    # intente abrir el conector.
+    $prueba = (& $Py -c "import notcd.server, notcd.navegador, notebooklm; import notcd; print(notcd.__version__)" 2>&1 |
         ForEach-Object { "$_" }) -join "`n"
     $prueba | Out-File -FilePath $script:Log -Append -Encoding utf8
     if ($LASTEXITCODE -ne 0) {

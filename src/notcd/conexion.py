@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import logging
 from contextlib import AbstractAsyncContextManager
 from typing import Any
@@ -30,6 +31,10 @@ SESION_INCOMPLETA = (
 )
 
 
+
+def hay_playwright() -> bool:
+    return importlib.util.find_spec("playwright") is not None
+
 class Conexion:
     """Un único cliente de NotebookLM, abierto al primer uso y reutilizado.
 
@@ -52,8 +57,9 @@ class Conexion:
 
                 # keepalive mantiene viva la cookie mientras la app está abierta;
                 # allow_headless permite recuperar una sesión vencida usando el
-                # perfil de navegador que quedó del inicio de sesión.
-                contexto = NotebookLMClient.from_storage(keepalive=600, allow_headless=True)
+                # perfil de navegador que quedó del inicio de sesión (con Playwright,
+                # que en Windows no se instala).
+                contexto = NotebookLMClient.from_storage(keepalive=600, allow_headless=hay_playwright())
                 self._cliente = await contexto.__aenter__()
                 self._contexto = contexto
             return self._cliente

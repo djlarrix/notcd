@@ -64,6 +64,11 @@ def login(args: argparse.Namespace) -> int:
             return 1
         return estado(args)
 
+    from notcd.conexion import hay_playwright
+
+    if not hay_playwright():
+        return login_navegador_instalado(args)
+
     from notcd import acceso
 
     if args.chrome:
@@ -98,6 +103,37 @@ def login(args: argparse.Namespace) -> int:
 
 
 NOMBRES_NAVEGADOR = {"chromium": "navegador", "chrome": "Google Chrome", "edge": "Microsoft Edge"}
+
+
+def login_navegador_instalado(args: argparse.Namespace) -> int:
+    """Windows: inicio de sesión con el Chrome o el Edge instalados (firmados), sin Playwright."""
+    from notcd import navegador
+
+    pedido = "chrome" if args.chrome else "edge" if args.edge else None
+    candidatos = navegador.disponibles(pedido)
+    if not candidatos:
+        mal(f"No encontré {NOMBRES_NAVEGADOR[pedido]}." if pedido else "No encontré Google Chrome ni Microsoft Edge.")
+        nota("Instala Google Chrome (google.com/chrome) y vuelve a intentarlo con:  notcd login")
+        return 1
+    for i, (nombre, ejecutable) in enumerate(candidatos):
+        if i:
+            aviso(f"Reintentando con {NOMBRES_NAVEGADOR[nombre]}…")
+        nota(f"Se abre una ventana de {NOMBRES_NAVEGADOR[nombre]}. Entra con la cuenta de Google que usas en NotebookLM.")
+        nota("Cuando veas NotebookLM, la ventana se cierra sola. Tienes hasta 10 minutos.")
+        try:
+            listo = navegador.iniciar_sesion(ejecutable, espera=args.espera)
+        except navegador.SinNavegador as error:
+            aviso(f"No se pudo abrir {NOMBRES_NAVEGADOR[nombre]}: {error}")
+            continue
+        if not listo:
+            mal("No se completó el inicio de sesión (se cerró la ventana o se acabó el tiempo).")
+            nota("Vuelve a intentarlo con:  notcd login")
+            return 1
+        ok("Sesión de Google guardada")
+        return estado(args)
+    mal("No se pudo abrir el navegador para iniciar sesión.")
+    nota("Si hay una ventana de inicio de sesión de notcd abierta, ciérrala y vuelve a intentarlo con:  notcd login")
+    return 1
 
 
 def capturar(opciones: list[str]) -> bool:
@@ -521,7 +557,7 @@ def main(argv: list[str] | None = None) -> int:
 
     p = sub.add_parser("login", help="iniciar sesión con la cuenta de Google de NotebookLM")
     grupo = p.add_mutually_exclusive_group()
-    grupo.add_argument("--chrome", action="store_true", help="usar tu Google Chrome en vez del navegador incluido")
+    grupo.add_argument("--chrome", action="store_true", help="usar Google Chrome")
     grupo.add_argument("--edge", action="store_true", help="usar Microsoft Edge")
     grupo.add_argument("--cookies", metavar="NAVEGADOR", help="tomar la sesión ya abierta en chrome, edge, firefox…")
     p.add_argument("--espera", type=float, default=600, help=argparse.SUPPRESS)

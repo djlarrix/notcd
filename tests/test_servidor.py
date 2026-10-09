@@ -4,9 +4,9 @@ from types import SimpleNamespace
 
 import notebooklm as nlm
 import pytest
-from mcp.server.mcpserver.exceptions import ToolError
 
 from notcd import nombres, rutas, server
+from notcd.protocolo import ErrorHerramienta as ToolError
 from notcd.conexion import SESION_INCOMPLETA, SESION_VENCIDA, SIN_SESION, explicar
 
 

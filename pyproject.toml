@@ -1,6 +1,6 @@
 [project]
 name = "notcd"
-version = "0.2.3"
+version = "0.3.0"
 description = "NotebookLM (Gemini Notebook) para el asistente de IA: servidor MCP y skill para trabajo jurídico."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -10,8 +10,13 @@ dependencies = [
   # Cliente no oficial de NotebookLM. Las correcciones por cambios de Google
   # salen como parches (0.8.x); las versiones menores sólo retiran APIs que
   # antes avisaron con DeprecationWarning, y notcd no usa ninguna.
-  "notebooklm-py[browser]>=0.8.4,<1.0",
-  "mcp>=2.3,<3",
+  "notebooklm-py>=0.8.4,<1.0",
+  # Nada compilado en Windows: el Control inteligente de aplicaciones bloquea los
+  # archivos compilados sin firma digital. Por eso el servidor MCP es propio
+  # (notcd/protocolo.py, sin pydantic-core ni cryptography) y en Windows el inicio
+  # de sesión usa el Chrome o el Edge instalados (notcd/navegador.py) en vez de
+  # Playwright, que trae greenlet y un Chromium sin firma.
+  "playwright>=1.40,<2; sys_platform != 'win32'",
   # Para `notcd login --cookies chrome` (tomar la sesión ya abierta en el navegador).
   # Sólo en Mac: en Windows, Chrome cifra las cookies de un modo que no se puede leer, y
   # esta biblioteca compilada, poco común, la bloquearía el Control inteligente de
@@ -20,7 +25,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "pytest-asyncio>=0.23", "pyyaml>=6"]
+# El cliente MCP oficial, para comprobar que el servidor propio habla bien el protocolo.
+dev = ["pytest>=8", "pytest-asyncio>=0.23", "pyyaml>=6", "mcp>=2.3,<3"]
 
 [project.scripts]
 notcd = "notcd.cli:main"

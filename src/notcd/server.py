@@ -12,13 +12,9 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
-from mcp.server.mcpserver import MCPServer
-from mcp.server.mcpserver.exceptions import ToolError
-from mcp_types import ToolAnnotations
-from pydantic import Field
-
 from notcd import __version__, actualizacion, entorno_login, formato, registro, rutas, verificacion
 from notcd.conexion import SIN_SESION, Conexion, explicar
+from notcd.protocolo import Anotaciones, Campo, ErrorHerramienta, Servidor
 from notcd.trabajos import ESPERA, Trabajos
 
 log = logging.getLogger("notcd")
@@ -58,7 +54,7 @@ Antes de un trabajo de varios pasos (leer un expediente, comparar contratos, pre
 revisar un escrito, investigar un tema), lee la guía con `guia_de_metodo`, salvo que la skill notcd ya esté cargada.
 """
 
-mcp = MCPServer(
+mcp = Servidor(
     name="notcd",
     title="notcd — NotebookLM",
     version=__version__,
@@ -106,23 +102,22 @@ def herramienta(titulo: str, *, lectura: bool, destructiva: bool = False):
                 resultado = await fn(*args, **kwargs)
                 log.info("%s ok %.1fs", fn.__name__, time.monotonic() - inicio)
                 return resultado
-            except ToolError:
+            except ErrorHerramienta:
                 log.info("%s rechazada %.1fs", fn.__name__, time.monotonic() - inicio)
                 raise
             except Exception as error:
                 log.info("%s error %s %.1fs", fn.__name__, type(error).__name__, time.monotonic() - inicio)
-                raise ToolError(await explicacion(error)) from error
+                raise ErrorHerramienta(await explicacion(error)) from error
 
         mcp.tool(
             title=titulo,
-            annotations=ToolAnnotations(
+            annotations=Anotaciones(
                 title=titulo,
-                readOnlyHint=lectura,
-                destructiveHint=destructiva,
-                idempotentHint=lectura,
-                openWorldHint=True,
+                read_only_hint=lectura,
+                destructive_hint=destructiva,
+                idempotent_hint=lectura,
+                open_world_hint=True,
             ),
-            structured_output=False,
         )(envuelta)
         return fn
 
@@ -130,7 +125,7 @@ def herramienta(titulo: str, *, lectura: bool, destructiva: bool = False):
 
 
 async def explicacion(error: BaseException) -> str:
-    if isinstance(error, ToolError):
+    if isinstance(error, ErrorHerramienta):
         return str(error)  # ya viene redactado para el asistente
     mensaje, descartar = explicar(error)
     if descartar:
@@ -230,8 +225,7 @@ async def estado_conexion() -> str:
 async def iniciar_sesion(
     navegador: Annotated[
         Literal["automatico", "chrome", "edge"],
-        Field(description="'automatico' usa el navegador de notcd y, si falla, Google Chrome. "
-              "'chrome' o 'edge' fuerzan ese navegador."),
+        Campo(description="'automatico' elige el navegador solo. 'chrome' o 'edge' fuerzan ese navegador."),
     ] = "automatico",
 ) -> str:
     """Abre una ventana de navegador con el formulario de Google para que el usuario inicie sesión.
@@ -275,11 +269,13 @@ async def iniciar_sesion(
     if _proceso_login.poll() is not None:
         detalle = salida_log.read_text(encoding="utf-8", errors="replace")[-1500:]
         return f"No se pudo abrir el inicio de sesión. Detalle:\n{detalle}"
+    from notcd.conexion import hay_playwright
+
+    demora = " (la primera vez puede tardar un minuto porque descarga el navegador)" if hay_playwright() else ""
     return (
-        "Se está abriendo una ventana con el formulario de Google (la primera vez puede tardar un "
-        "minuto porque descarga el navegador). Pide al usuario que entre con la cuenta de Google "
-        "que usa en NotebookLM; cuando aparezca NotebookLM, la ventana se cierra sola. Tiene 10 "
-        "minutos. Luego confirma con `estado_conexion`."
+        f"Se está abriendo una ventana con el formulario de Google{demora}. Pide al usuario que entre "
+        "con la cuenta de Google que usa en NotebookLM; cuando aparezca NotebookLM, la ventana se "
+        "cierra sola. Tiene 10 minutos. Luego confirma con `estado_conexion`."
     )
 
 
@@ -288,7 +284,7 @@ async def iniciar_sesion(
 
 @herramienta("Listar cuadernos de NotebookLM", lectura=True)
 async def listar_cuadernos(
-    filtro: Annotated[str | None, Field(description="Texto a buscar en el título (opcional).")] = None,
+    filtro: Annotated[str | None, Campo(description="Texto a buscar en el título (opcional).")] = None,
 ) -> str:
     """Lista los cuadernos (notebooks) de NotebookLM de la cuenta, con su id y número de fuentes."""
     cliente = await conexion.cliente()
@@ -300,7 +296,7 @@ async def listar_cuadernos(
 
 @herramienta("Ver un cuaderno: resumen y fuentes", lectura=True)
 async def ver_cuaderno(
-    cuaderno_id: Annotated[str, Field(description="Id del cuaderno (de listar_cuadernos).")],
+    cuaderno_id: Annotated[str, Campo(description="Id del cuaderno (de listar_cuadernos).")],
 ) -> str:
     """Muestra un cuaderno: el resumen que hizo NotebookLM, sus fuentes (con ids) y sus notas.
 
@@ -348,9 +344,9 @@ async def aplicar_lector(cliente: Any, cuaderno_id: str, extra: str | None, larg
 
 @herramienta("Crear cuaderno en NotebookLM", lectura=False)
 async def crear_cuaderno(
-    titulo: Annotated[str, Field(description="Título, p. ej. «Pérez con Banco X · C-1234-2025 · 3° Civil Stgo».")],
+    titulo: Annotated[str, Campo(description="Título, p. ej. «Pérez con Banco X · C-1234-2025 · 3° Civil Stgo».")],
     lector_juridico: Annotated[
-        bool, Field(description="Configurar a NotebookLM como lector jurídico (sólo lo que consta, cita textual).")
+        bool, Campo(description="Configurar a NotebookLM como lector jurídico (sólo lo que consta, cita textual).")
     ] = True,
 ) -> str:
     """Crea un cuaderno vacío en NotebookLM, configurado para responder como lector jurídico.
@@ -373,15 +369,15 @@ async def crear_cuaderno(
 
 @herramienta("Configurar cómo responde NotebookLM en un cuaderno", lectura=False)
 async def configurar_lector(
-    cuaderno_id: Annotated[str, Field(description="Id del cuaderno.")],
+    cuaderno_id: Annotated[str, Campo(description="Id del cuaderno.")],
     instrucciones_extra: Annotated[
-        str | None, Field(description="Indicaciones adicionales para este cuaderno (opcional).")
+        str | None, Campo(description="Indicaciones adicionales para este cuaderno (opcional).")
     ] = None,
     largo: Annotated[
         Literal["corto", "normal", "largo"],
-        Field(description="Largo de las respuestas. 'largo' es más exhaustivo pero bastante más lento."),
+        Campo(description="Largo de las respuestas. 'largo' es más exhaustivo pero bastante más lento."),
     ] = "normal",
-    quitar: Annotated[bool, Field(description="True para volver a la configuración normal de NotebookLM.")] = False,
+    quitar: Annotated[bool, Campo(description="True para volver a la configuración normal de NotebookLM.")] = False,
 ) -> str:
     """Configura a NotebookLM como lector jurídico en un cuaderno existente (o lo devuelve a lo normal).
 
@@ -405,14 +401,14 @@ async def configurar_lector(
 
 @herramienta("Compartir un cuaderno con otras personas", lectura=False)
 async def compartir_cuaderno(
-    cuaderno_id: Annotated[str, Field(description="Id del cuaderno.")],
-    correos: Annotated[list[str], Field(description="Correos de Google de las personas.")],
+    cuaderno_id: Annotated[str, Campo(description="Id del cuaderno.")],
+    correos: Annotated[list[str], Campo(description="Correos de Google de las personas.")],
     rol: Annotated[
         Literal["lector", "editor"],
-        Field(description="lector: ve y pregunta. editor: además agrega o quita fuentes y notas."),
+        Campo(description="lector: ve y pregunta. editor: además agrega o quita fuentes y notas."),
     ] = "lector",
-    avisar: Annotated[bool, Field(description="Que Google les envíe un correo avisando.")] = True,
-    mensaje: Annotated[str | None, Field(description="Mensaje para el correo de aviso (opcional).")] = None,
+    avisar: Annotated[bool, Campo(description="Que Google les envíe un correo avisando.")] = True,
+    mensaje: Annotated[str | None, Campo(description="Mensaje para el correo de aviso (opcional).")] = None,
 ) -> str:
     """Da acceso a un cuaderno a otras personas (por su correo de Google). Confirma antes con el usuario."""
     import notebooklm as nlm
@@ -420,7 +416,7 @@ async def compartir_cuaderno(
     validos = [c.strip() for c in correos if CORREO.match(c.strip())]
     invalidos = [c for c in correos if not CORREO.match(c.strip())]
     if not validos:
-        raise ToolError("Ninguno de los correos es válido: " + ", ".join(invalidos))
+        raise ErrorHerramienta("Ninguno de los correos es válido: " + ", ".join(invalidos))
     permiso = nlm.SharePermission.EDITOR if rol == "editor" else nlm.SharePermission.VIEWER
     cliente = await conexion.cliente()
     hechos, fallas = [], []
@@ -500,22 +496,22 @@ def titulo_fuente_texto(texto: str, titulo: str | None) -> str:
 
 @herramienta("Agregar fuentes a un cuaderno (sube documentos a Google)", lectura=False)
 async def agregar_fuentes(
-    cuaderno_id: Annotated[str, Field(description="Id del cuaderno de destino.")],
+    cuaderno_id: Annotated[str, Campo(description="Id del cuaderno de destino.")],
     archivos: Annotated[
         list[str] | None,
-        Field(description="Rutas absolutas de archivos o carpetas de ESTE computador (PDF, Word .docx, "
+        Campo(description="Rutas absolutas de archivos o carpetas de ESTE computador (PDF, Word .docx, "
               "texto, PowerPoint, Excel, audio, imágenes). Una carpeta se sube completa."),
     ] = None,
     urls: Annotated[
-        list[str] | None, Field(description="Páginas web o videos de YouTube a agregar como fuente.")
+        list[str] | None, Campo(description="Páginas web o videos de YouTube a agregar como fuente.")
     ] = None,
     texto: Annotated[
         str | None,
-        Field(description="Texto a agregar como fuente (p. ej. una ley o un fallo traído de otra herramienta)."),
+        Campo(description="Texto a agregar como fuente (p. ej. una ley o un fallo traído de otra herramienta)."),
     ] = None,
-    titulo_texto: Annotated[str | None, Field(description="Título para la fuente de `texto`.")] = None,
+    titulo_texto: Annotated[str | None, Campo(description="Título para la fuente de `texto`.")] = None,
     repetir: Annotated[
-        bool, Field(description="Subir aunque ya haya una fuente con el mismo nombre en el cuaderno.")
+        bool, Campo(description="Subir aunque ya haya una fuente con el mismo nombre en el cuaderno.")
     ] = False,
 ) -> str:
     """Agrega fuentes a un cuaderno de NotebookLM: archivos locales, carpetas, URLs o texto.
@@ -526,13 +522,13 @@ async def agregar_fuentes(
     """
     lista_archivos, avisos = expandir_rutas(archivos or [])
     if len(lista_archivos) > MAX_ARCHIVOS:
-        raise ToolError(
+        raise ErrorHerramienta(
             f"Son {len(lista_archivos)} archivos; el máximo por llamada es {MAX_ARCHIVOS}. "
             "Confirma con el usuario la carpeta correcta o súbelos por partes."
         )
     if not (lista_archivos or urls or texto):
         detalle = ("\n" + "\n".join(avisos)) if avisos else ""
-        raise ToolError("No hay nada que agregar." + detalle)
+        raise ErrorHerramienta("No hay nada que agregar." + detalle)
 
     cliente = await conexion.cliente()
     ya_estan: list[str] = []
@@ -583,7 +579,7 @@ async def _agregar(
         # Si todo falló por lo mismo (sesión vencida, cuota), basta con decirlo una vez.
         mensajes = {explicar(error)[0] for _, error in fallidas}
         if len(mensajes) == 1:
-            raise ToolError(f"No se agregó ninguna fuente: {mensajes.pop()}")
+            raise ErrorHerramienta(f"No se agregó ninguna fuente: {mensajes.pop()}")
 
     estados: dict[str, str] = {}
     if agregadas:
@@ -620,8 +616,8 @@ async def _agregar(
 
 @herramienta("Quitar fuentes de un cuaderno", lectura=False, destructiva=True)
 async def quitar_fuentes(
-    cuaderno_id: Annotated[str, Field(description="Id del cuaderno.")],
-    fuente_ids: Annotated[list[str], Field(description="Ids de las fuentes a quitar (de ver_cuaderno).")],
+    cuaderno_id: Annotated[str, Campo(description="Id del cuaderno.")],
+    fuente_ids: Annotated[list[str], Campo(description="Ids de las fuentes a quitar (de ver_cuaderno).")],
 ) -> str:
     """Elimina fuentes de un cuaderno de NotebookLM (por ejemplo, subidas por error o duplicadas).
 
@@ -647,13 +643,13 @@ async def quitar_fuentes(
 
 @herramienta("Preguntar a NotebookLM sobre las fuentes", lectura=True)
 async def preguntar(
-    cuaderno_id: Annotated[str, Field(description="Id del cuaderno.")],
-    pregunta: Annotated[str, Field(description="Pregunta concreta. Mejor varias específicas que una general.")],
+    cuaderno_id: Annotated[str, Campo(description="Id del cuaderno.")],
+    pregunta: Annotated[str, Campo(description="Pregunta concreta. Mejor varias específicas que una general.")],
     fuente_ids: Annotated[
-        list[str] | None, Field(description="Limitar la respuesta a estas fuentes (opcional).")
+        list[str] | None, Campo(description="Limitar la respuesta a estas fuentes (opcional).")
     ] = None,
     conversacion_id: Annotated[
-        str | None, Field(description="Para repreguntar en el mismo hilo: el id que devolvió la respuesta anterior.")
+        str | None, Campo(description="Para repreguntar en el mismo hilo: el id que devolvió la respuesta anterior.")
     ] = None,
 ) -> str:
     """Pregunta a NotebookLM (Gemini) y devuelve su respuesta anclada en las fuentes del cuaderno.
@@ -678,10 +674,10 @@ async def preguntar(
 
 @herramienta("Buscar pasajes textuales en las fuentes", lectura=True)
 async def buscar_pasajes(
-    cuaderno_id: Annotated[str, Field(description="Id del cuaderno.")],
-    consulta: Annotated[str, Field(description="Lo que se busca: un hecho, una cláusula, un nombre, una fecha.")],
-    fuente_ids: Annotated[list[str] | None, Field(description="Buscar sólo en estas fuentes (opcional).")] = None,
-    limite: Annotated[int, Field(ge=1, le=20, description="Cuántos pasajes devolver.")] = 8,
+    cuaderno_id: Annotated[str, Campo(description="Id del cuaderno.")],
+    consulta: Annotated[str, Campo(description="Lo que se busca: un hecho, una cláusula, un nombre, una fecha.")],
+    fuente_ids: Annotated[list[str] | None, Campo(description="Buscar sólo en estas fuentes (opcional).")] = None,
+    limite: Annotated[int, Campo(ge=1, le=20, description="Cuántos pasajes devolver.")] = 8,
 ) -> str:
     """Busca en las fuentes y devuelve los pasajes textuales más pertinentes, sin que NotebookLM los resuma.
 
@@ -696,10 +692,10 @@ async def buscar_pasajes(
 
 @herramienta("Leer el texto completo de una fuente", lectura=True)
 async def leer_fuente(
-    cuaderno_id: Annotated[str, Field(description="Id del cuaderno.")],
-    fuente_id: Annotated[str, Field(description="Id de la fuente (de ver_cuaderno o de una cita).")],
-    desde: Annotated[int, Field(ge=0, description="Carácter desde el que leer (para documentos largos).")] = 0,
-    largo: Annotated[int, Field(ge=1000, le=60000, description="Cuántos caracteres devolver.")] = 20000,
+    cuaderno_id: Annotated[str, Campo(description="Id del cuaderno.")],
+    fuente_id: Annotated[str, Campo(description="Id de la fuente (de ver_cuaderno o de una cita).")],
+    desde: Annotated[int, Campo(ge=0, description="Carácter desde el que leer (para documentos largos).")] = 0,
+    largo: Annotated[int, Campo(ge=1000, le=60000, description="Cuántos caracteres devolver.")] = 20000,
 ) -> str:
     """Devuelve el texto de una fuente tal como NotebookLM lo leyó, por tramos.
 
@@ -727,14 +723,14 @@ async def leer_fuente(
 
 @herramienta("Verificar que las citas textuales estén literales en las fuentes", lectura=True)
 async def verificar_citas(
-    cuaderno_id: Annotated[str, Field(description="Id del cuaderno con los documentos originales.")],
+    cuaderno_id: Annotated[str, Campo(description="Id del cuaderno con los documentos originales.")],
     citas: Annotated[
         list[str],
-        Field(description="Las frases que van entre comillas en el escrito, una por elemento. "
+        Campo(description="Las frases que van entre comillas en el escrito, una por elemento. "
               "Las omisiones se marcan con […] o (...)."),
     ],
     fuente_ids: Annotated[
-        list[str] | None, Field(description="Buscar sólo en estas fuentes, si se sabe de dónde vienen (más rápido).")
+        list[str] | None, Campo(description="Buscar sólo en estas fuentes, si se sabe de dónde vienen (más rápido).")
     ] = None,
 ) -> str:
     """Comprueba, letra por letra, si cada cita está tal cual en el texto de las fuentes.
@@ -746,9 +742,9 @@ async def verificar_citas(
     import notebooklm as nlm
 
     if not citas:
-        raise ToolError("No hay citas que verificar.")
+        raise ErrorHerramienta("No hay citas que verificar.")
     if len(citas) > 60:
-        raise ToolError("Son más de 60 citas: verifícalas por partes.")
+        raise ErrorHerramienta("Son más de 60 citas: verifícalas por partes.")
     cliente = await conexion.cliente()
 
     async def operar() -> str:
@@ -758,7 +754,7 @@ async def verificar_citas(
             if (not fuente_ids or s.id in fuente_ids) and formato.nombre(s.status) != "ERROR"
         ]
         if not elegidas:
-            raise ToolError("No hay fuentes legibles que revisar en ese cuaderno.")
+            raise ErrorHerramienta("No hay fuentes legibles que revisar en ese cuaderno.")
         semaforo = asyncio.Semaphore(4)
 
         async def cargar(s):
@@ -781,9 +777,9 @@ async def verificar_citas(
 
 @herramienta("Guardar una nota en el cuaderno", lectura=False)
 async def guardar_nota(
-    cuaderno_id: Annotated[str, Field(description="Id del cuaderno.")],
-    titulo: Annotated[str, Field(description="Título de la nota, idealmente con autor y fecha.")],
-    contenido: Annotated[str, Field(description="Texto de la nota (puede ser largo).")],
+    cuaderno_id: Annotated[str, Campo(description="Id del cuaderno.")],
+    titulo: Annotated[str, Campo(description="Título de la nota, idealmente con autor y fecha.")],
+    contenido: Annotated[str, Campo(description="Texto de la nota (puede ser largo).")],
 ) -> str:
     """Guarda una nota en el cuaderno de NotebookLM (por ejemplo, tu análisis o tu minuta).
 
@@ -796,8 +792,8 @@ async def guardar_nota(
 
 @herramienta("Buscar fuentes en la web con NotebookLM", lectura=True)
 async def buscar_en_web(
-    cuaderno_id: Annotated[str, Field(description="Id del cuaderno donde se haría la búsqueda.")],
-    tema: Annotated[str, Field(description="Qué buscar.")],
+    cuaderno_id: Annotated[str, Campo(description="Id del cuaderno donde se haría la búsqueda.")],
+    tema: Annotated[str, Campo(description="Qué buscar.")],
 ) -> str:
     """Pide a NotebookLM que busque en la web fuentes sobre un tema y devuelve los resultados.
 
@@ -838,28 +834,28 @@ RAPIDOS = {"informe", "tabla_datos", "cuestionario", "tarjetas"}
 
 @herramienta("Generar contenido con NotebookLM (informe, audio, mapa, tabla…)", lectura=False)
 async def generar(
-    cuaderno_id: Annotated[str, Field(description="Id del cuaderno.")],
+    cuaderno_id: Annotated[str, Campo(description="Id del cuaderno.")],
     tipo: Annotated[
         TipoContenido,
-        Field(description="informe (texto), resumen_audio (podcast), mapa_mental, tabla_datos (comparativa "
+        Campo(description="informe (texto), resumen_audio (podcast), mapa_mental, tabla_datos (comparativa "
               "en CSV), presentacion (PowerPoint), cuestionario, tarjetas, infografia, video."),
     ],
     instrucciones: Annotated[
         str | None,
-        Field(description="Qué enfatizar o cómo hacerlo. En tabla_datos, qué columnas y filas. En informe "
+        Campo(description="Qué enfatizar o cómo hacerlo. En tabla_datos, qué columnas y filas. En informe "
               "'personalizado', es el encargo completo."),
     ] = None,
-    fuente_ids: Annotated[list[str] | None, Field(description="Usar sólo estas fuentes (opcional).")] = None,
-    idioma: Annotated[str, Field(description="Idioma de salida (es_419 = español latinoamericano).")] = "es_419",
+    fuente_ids: Annotated[list[str] | None, Campo(description="Usar sólo estas fuentes (opcional).")] = None,
+    idioma: Annotated[str, Campo(description="Idioma de salida (es_419 = español latinoamericano).")] = "es_419",
     formato_informe: Annotated[
         Literal["resumen_ejecutivo", "guia_estudio", "explicacion", "personalizado"],
-        Field(description="Sólo para tipo=informe."),
+        Campo(description="Sólo para tipo=informe."),
     ] = "resumen_ejecutivo",
     formato_audio: Annotated[
         Literal["conversacion", "breve", "critica", "debate"],
-        Field(description="Sólo para resumen_audio. 'debate' enfrenta dos posturas: útil para preparar alegatos."),
+        Campo(description="Sólo para resumen_audio. 'debate' enfrenta dos posturas: útil para preparar alegatos."),
     ] = "conversacion",
-    duracion_audio: Annotated[Literal["corta", "normal", "larga"], Field(description="Sólo para resumen_audio.")] = "normal",
+    duracion_audio: Annotated[Literal["corta", "normal", "larga"], Campo(description="Sólo para resumen_audio.")] = "normal",
 ) -> str:
     """Encarga a NotebookLM un contenido basado en las fuentes del cuaderno.
 
@@ -870,7 +866,7 @@ async def generar(
     import notebooklm as nlm
 
     if tipo == "informe" and formato_informe == "personalizado" and not instrucciones:
-        raise ToolError("Un informe 'personalizado' necesita el encargo en `instrucciones`.")
+        raise ErrorHerramienta("Un informe 'personalizado' necesita el encargo en `instrucciones`.")
     cliente = await conexion.cliente()
     art = cliente.artifacts
 
@@ -927,7 +923,7 @@ async def generar(
         inicio = time.monotonic()
         estado = await encargar()
         if estado.is_failed:
-            raise ToolError(f"NotebookLM no aceptó el encargo: {estado.error or 'sin detalle'}. "
+            raise ErrorHerramienta(f"NotebookLM no aceptó el encargo: {estado.error or 'sin detalle'}. "
                             "Si habla de límites o cuota, hay que esperar.")
         contenido_id = estado.task_id
         if tipo in RAPIDOS:
@@ -938,7 +934,7 @@ async def generar(
                 if estado.is_complete:
                     return await entregar(cliente, cuaderno_id, await art.get(cuaderno_id, contenido_id))
                 if estado.is_failed:
-                    raise ToolError(f"NotebookLM no pudo generar el {NOMBRES_TIPO[tipo]}: {estado.error or 'sin detalle'}")
+                    raise ErrorHerramienta(f"NotebookLM no pudo generar el {NOMBRES_TIPO[tipo]}: {estado.error or 'sin detalle'}")
         espera = "unos minutos" if tipo in RAPIDOS else "varios minutos (audio y video pueden tardar 5 a 15)"
         return (
             f"Encargado: {NOMBRES_TIPO[tipo]} · contenido_id: {contenido_id}\n"
@@ -951,12 +947,12 @@ async def generar(
 
 @herramienta("Ver o descargar contenido generado por NotebookLM", lectura=False)
 async def obtener_contenido(
-    cuaderno_id: Annotated[str, Field(description="Id del cuaderno.")],
+    cuaderno_id: Annotated[str, Campo(description="Id del cuaderno.")],
     contenido_id: Annotated[
-        str | None, Field(description="Id del contenido. Sin id, lista todo lo generado en el cuaderno.")
+        str | None, Campo(description="Id del contenido. Sin id, lista todo lo generado en el cuaderno.")
     ] = None,
     formato_presentacion: Annotated[
-        Literal["pptx", "pdf"], Field(description="Sólo para presentaciones.")
+        Literal["pptx", "pdf"], Campo(description="Sólo para presentaciones.")
     ] = "pptx",
 ) -> str:
     """Lista el contenido generado de un cuaderno o, con un id, lo descarga a este computador.
@@ -1042,7 +1038,7 @@ async def entregar(cliente: Any, cuaderno_id: str, artefacto: Any, *, formato_pr
 @herramienta("Ver el resultado de un trabajo en segundo plano", lectura=True)
 async def ver_trabajo(
     trabajo_id: Annotated[
-        str | None, Field(description="El trabajo_id que devolvió otra herramienta. Sin id, lista los trabajos.")
+        str | None, Campo(description="El trabajo_id que devolvió otra herramienta. Sin id, lista los trabajos.")
     ] = None,
 ) -> str:
     """Devuelve el resultado de una operación que siguió en segundo plano (o dice que aún sigue)."""
@@ -1056,7 +1052,7 @@ MODOS_GUIA = Literal["general", "expediente", "contratos", "audiencia", "escrito
 async def guia_de_metodo(
     modo: Annotated[
         MODOS_GUIA,
-        Field(description="general (reglas y herramientas), expediente, contratos, audiencia, escritos "
+        Campo(description="general (reglas y herramientas), expediente, contratos, audiencia, escritos "
               "(redactar o revisar con citas verificadas), investigacion, equipo (compartir, notas, confidencialidad)."),
     ] = "general",
 ) -> str:
@@ -1069,7 +1065,7 @@ async def guia_de_metodo(
     try:
         texto = archivo.read_text(encoding="utf-8")
     except OSError:
-        raise ToolError(f"No encontré la guía «{modo}» en {carpeta}. Reinstala notcd.")
+        raise ErrorHerramienta(f"No encontré la guía «{modo}» en {carpeta}. Reinstala notcd.")
     if texto.startswith("---"):
         texto = texto.split("---", 2)[2].lstrip()  # sin el encabezado de la skill
     return texto
@@ -1158,4 +1154,4 @@ def main() -> None:
     rutas.migrar_version_anterior()
     registro.configurar()
     log.info("servidor iniciado (notcd %s)", __version__)
-    mcp.run("stdio")
+    mcp.run()

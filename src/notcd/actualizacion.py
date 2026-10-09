@@ -15,12 +15,10 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
 import time
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from notcd import INICIO
@@ -128,17 +126,6 @@ def _correr(comando: list[str], cwd: Path | None = None) -> subprocess.Completed
     )
 
 
-# Bibliotecas compiladas sin firma digital. En Windows se instalan en versiones con al menos
-# tres semanas: el Control inteligente de aplicaciones decide si confía en un archivo sin
-# firma según su reputación, y los recién publicados todavía no la tienen.
-COMPILADAS = ("pydantic-core", "pydantic", "cryptography", "cffi", "greenlet", "rpds-py", "pywin32")
-
-
-def opciones_maduras(dias: int = 21) -> list[str]:
-    limite = (datetime.now(timezone.utc) - timedelta(days=dias)).strftime("%Y-%m-%d")
-    return [opcion for paquete in COMPILADAS for opcion in ("--exclude-newer-package", f"{paquete}={limite}")]
-
-
 def aplicar_sincrono() -> tuple[bool, str]:
     """Actualiza notebooklm-py. Devuelve (salió bien, mensaje)."""
     forma = modo()
@@ -160,10 +147,7 @@ def aplicar_sincrono() -> tuple[bool, str]:
             fuente = descargar_ultima_version(INICIO / "fuente")
         except Exception as error:
             return False, f"No se pudo descargar la versión nueva: {error}"
-        comando = [uv, "pip", "install", "--python", sys.executable, "--upgrade", "--reinstall-package", "notcd"]
-        r = _correr([*comando, *opciones_maduras(), str(fuente)])
-        if r.returncode != 0 and re.search(r"No solution found|unsatisfiable|unexpected argument", r.stderr + r.stdout):
-            r = _correr([*comando, str(fuente)])
+        r = _correr([uv, "pip", "install", "--python", sys.executable, "--upgrade", "--reinstall-package", "notcd", str(fuente)])
         if r.returncode != 0:
             detalle = (r.stderr or r.stdout).strip()[-600:]
             return False, (

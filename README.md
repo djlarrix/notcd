@@ -83,8 +83,10 @@ Sigue la política del estudio sobre qué información puede ir a servicios exte
 SKILL.md, referencias/   la skill, en la raíz (el repositorio mismo sirve como skill)
 src/notcd/
   server.py         las 20 herramientas MCP, 4 plantillas y las instrucciones para el asistente
+  protocolo.py      el servidor MCP por stdio, en Python puro (sin nada compilado que Windows pueda bloquear)
   nombres.py        los nombres técnicos de la app (archivos, carpetas, procesos), armados por partes
-  acceso.py         inicio de sesión: abre el formulario de Google y espera
+  acceso.py         inicio de sesión en Mac y Linux (Playwright): abre el formulario de Google y espera
+  navegador.py      inicio de sesión en Windows: el Chrome o el Edge instalados, por su puerto de depuración
   verificacion.py   verificación mecánica de citas textuales (funciones puras)
   trabajos.py       operaciones largas en segundo plano (límite de ~60 s de la app de escritorio)
   conexion.py       cliente de NotebookLM (uno por proceso) y traducción de errores
@@ -107,6 +109,16 @@ En el computador del usuario, todo vive en `~/.notcd/`: la sesión de Google (`g
 ### El inicio de sesión
 
 notebooklm-py 0.8.4 cree que hay sesión cuando ve la portada pública que Google muestra sin sesión desde el cambio a «Gemini Notebook», y cerraba la ventana a los segundos ([teng-lin/notebooklm-py#2467](https://github.com/teng-lin/notebooklm-py/issues/2467)). `acceso.py` abre primero el formulario de Google en el mismo perfil de navegador y espera a que la persona entre; después la librería encuentra la sesión real y la guarda bien.
+
+### Windows y el Control inteligente de aplicaciones
+
+Windows 11 puede bloquear todo archivo ejecutable sin firma digital (os error 4551), y eso incluye las bibliotecas compiladas de Python (`.pyd`). Por eso, en Windows, notcd no instala nada compilado:
+
+- corre sobre el **Python oficial de python.org**, firmado, en un entorno propio (`~/.notcd/entorno`);
+- el servidor MCP es **propio y en Python puro** (`protocolo.py`): la biblioteca oficial depende de pydantic-core y cryptography, compiladas. Las pruebas lo comprueban con el cliente oficial;
+- el inicio de sesión usa el **Chrome o el Edge instalados** (`navegador.py`): Playwright trae greenlet (compilado) y un Chromium sin firma. notcd abre el navegador con un perfil propio y lee la sesión por el puerto de depuración local, y sólo la guarda si NotebookLM la acepta.
+
+Una prueba revisa que importar notcd no cargue nada compilado, y la instalación de prueba en Windows falla si aparece algún `.pyd` o `.dll` en el entorno.
 
 ### Desarrollo
 
