@@ -178,6 +178,9 @@ El instalador muestra debajo el error real y qué significa:
 - **Un archivo estaba en uso**: primero reintenta solo (hasta tres veces, esperando entre cada intento). Si sigue ocupado, dice **qué programa lo tiene tomado**. Si es el antivirus, espera un minuto y vuelve a pegar el comando; si se repite, pide a TI que excluya la carpeta `%APPDATA%\uv` del análisis en tiempo real. Si es la app, ciérrala desde el ícono junto al reloj (a veces se abre sola al iniciar Windows).
 - **Certificados o conexión**: la red de la oficina está revisando o bloqueando las conexiones con pypi.org, files.pythonhosted.org o github.com. Pide a TI que los permita, o prueba desde otra red (por ejemplo, el teléfono como punto de acceso).
 
+**Windows: «Una directiva de Control de aplicaciones bloqueó este archivo» (os error 4551).**
+Es el *Control inteligente de aplicaciones* de Windows 11, que bloquea programas sin firma digital. Desde la versión 0.2.2 el instalador usa el Python oficial de python.org (firmado) y, desde la 0.2.3, instala las bibliotecas compiladas en versiones con al menos tres semanas de publicadas, que Windows ya reconoce. Basta con **volver a pegar el comando de instalación**. Si aun así se bloquea algún archivo, el instalador dice cuál: envía el `.notcd\instalacion.log`. Desactivar el Control inteligente de aplicaciones (*Seguridad de Windows → Control de aplicaciones y navegador*) es el último recurso: no se puede volver a activar sin reinstalar Windows.
+
 Todo el detalle queda en el archivo `.notcd\instalacion.log` de tu carpeta de usuario: envíalo a quien te ayuda con la instalación.
 
 **El instalador dice que la app está abierta, pero la cerré.**
@@ -231,7 +234,7 @@ Quita notcd de las apps. Para borrar también el programa: `uv tool uninstall no
 
 Sirve sólo para la app de escritorio y no usa la Terminal. Útil si alguien no puede o no quiere pegar el comando.
 
-1. Descarga **`notcd-0.2.2.mcpb`** y **`notcd.zip`** desde la [página de versiones](https://github.com/djlarrix/notcd/releases/latest) (*Assets*).
+1. Descarga **`notcd-0.2.3.mcpb`** y **`notcd.zip`** desde la [página de versiones](https://github.com/djlarrix/notcd/releases/latest) (*Assets*).
 2. **Doble clic en el `.mcpb`** → la app muestra la extensión → **Instalar**. La primera vez tarda uno o dos minutos en estar disponible. Para confirmar: *Configuración → Extensiones* muestra **notcd** activada.
 3. Sube la skill ([punto 4](#4-subir-la-skill-a-la-app)).
 4. En una conversación nueva: *«Conéctate a NotebookLM»* y entra con Google en la ventana que se abre.

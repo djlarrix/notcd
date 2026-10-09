@@ -332,14 +332,28 @@ function Instalar-Notcd {
     }
 
     Ok 'Instalando componentes (la primera vez tarda uno o dos minutos)...'
+    # Las bibliotecas compiladas (sin firma digital) se instalan en versiones con al menos
+    # tres semanas: Windows decide si confía en un archivo sin firma según su reputación, y
+    # los recién publicados todavía no la tienen. Lo demás (como la conexión con NotebookLM,
+    # que recibe correcciones seguido) va siempre en su última versión.
+    $limite = (Get-Date).ToUniversalTime().AddDays(-21).ToString('yyyy-MM-dd')
+    $maduras = @(foreach ($paquete in 'pydantic-core', 'pydantic', 'cryptography', 'cffi', 'greenlet', 'rpds-py', 'pywin32') {
+        '--exclude-newer-package'; "$paquete=$limite"
+    })
     $instalado = $false
     for ($intento = 1; $intento -le 3; $intento++) {
         # "$_" convierte cada línea de stderr en su texto, sin el ruido que agrega PowerShell 5.
-        $salida = (& $Uv pip install --python $Py --upgrade --reinstall-package notcd $Fuente 2>&1 |
+        $salida = (& $Uv pip install --python $Py --upgrade --reinstall-package notcd @maduras $Fuente 2>&1 |
             ForEach-Object { "$_" }) -join "`n"
         $codigo = $LASTEXITCODE
         $salida | Out-File -FilePath $script:Log -Append -Encoding utf8
         if ($codigo -eq 0) { $instalado = $true; break }
+        if ($maduras.Count -gt 0 -and $salida -match 'No solution found|unsatisfiable|unexpected argument') {
+            # Sin solución con versiones antiguas (o un uv antiguo que no conoce la opción): las más nuevas.
+            $maduras = @()
+            $intento--
+            continue
+        }
         if ($salida -notmatch $script:ErrorEnUso) { break }
         Ok "Un archivo estaba ocupado; reintentando ($intento de 3)..."
         Stop-ProcesosPropios $Anterior | Out-Null
