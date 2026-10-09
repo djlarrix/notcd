@@ -546,13 +546,13 @@ wheels = [
 
 [[package]]
 name = "notcd"
-version = "0.2.1"
+version = "0.2.2"
 source = { editable = "." }
 dependencies = [
     { name = "mcp" },
     { name = "notebooklm-py", extra = ["browser"] },
-    { name = "rookie-cookies", version = "0.5.9", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version < '3.11' and platform_machine == 'AMD64' and sys_platform == 'win32') or (python_full_version < '3.11' and sys_platform == 'darwin')" },
-    { name = "rookie-cookies", version = "0.6.0", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version >= '3.11' and platform_machine == 'AMD64' and sys_platform == 'win32') or (python_full_version >= '3.11' and sys_platform == 'darwin')" },
+    { name = "rookie-cookies", version = "0.5.9", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' and sys_platform == 'darwin'" },
+    { name = "rookie-cookies", version = "0.6.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' and sys_platform == 'darwin'" },
 ]
 
 [package.optional-dependencies]
@@ -569,7 +569,7 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23" },
     { name = "pyyaml", marker = "extra == 'dev'", specifier = ">=6" },
-    { name = "rookie-cookies", marker = "(platform_machine == 'AMD64' and sys_platform == 'win32') or sys_platform == 'darwin'", specifier = ">=0.1.0,<1" },
+    { name = "rookie-cookies", marker = "sys_platform == 'darwin'", specifier = ">=0.1.0,<1" },
 ]
 provides-extras = ["dev"]
 
@@ -990,7 +990,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/11/d2/8bd60734831d4ffb7
 wheels = [
     { url = "https://files.pythonhosted.org/packages/81/b2/796c79ef8ab877df8ecbebc61e37ae13db3537bce8247e4b6d77ef2770ba/rookie_cookies-0.5.9-cp38-abi3-macosx_10_12_x86_64.whl", hash = "sha256:04681ae9baeccbcd21184f862c4b85a93fbaf265758363a00a51b39d0489f59e", size = 1652640, upload-time = "2026-08-15T11:40:52.827Z" },
     { url = "https://files.pythonhosted.org/packages/57/f2/561033b1619f673422947995085fef01607f380eb569be190917326448c8/rookie_cookies-0.5.9-cp38-abi3-macosx_11_0_arm64.whl", hash = "sha256:a26e27aa0fae0fa49888651584afb6792d726d899cbb5342591ad32b674630eb", size = 1585889, upload-time = "2026-08-15T11:40:54.531Z" },
-    { url = "https://files.pythonhosted.org/packages/d3/5d/f70a3ddf0f26b1edf172356018c47120c91e478d74e0750803e86202347e/rookie_cookies-0.5.9-cp38-abi3-win_amd64.whl", hash = "sha256:e62821f09b711729cb3ef95b2f4e678a9ec20bf3f5f00156e7e458aad7e9a77c", size = 2829899, upload-time = "2026-08-15T11:41:06.693Z" },
 ]
 
 [[package]]
@@ -1005,7 +1004,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/ec/07/398e39b02212b78cd
 wheels = [
     { url = "https://files.pythonhosted.org/packages/10/c9/fa17508fbc079c63d15d02f4b9b73995b758a1a5862e74edeb75cc5e7379/rookie_cookies-0.6.0-cp311-abi3-macosx_10_12_x86_64.whl", hash = "sha256:9a664a703267e5a088a590007f3dfac6891966101be9501cc0af0f464f52e22c", size = 2021172, upload-time = "2026-08-23T17:48:17.683Z" },
     { url = "https://files.pythonhosted.org/packages/0a/e8/aa9dc3b26b51acc3c50dc5da45cd6f3aef4adab799b868251d275949887c/rookie_cookies-0.6.0-cp311-abi3-macosx_11_0_arm64.whl", hash = "sha256:962d80a51bae45df711643593486852cfb8e34a27c758d33066371d6e2696bd7", size = 1944327, upload-time = "2026-08-23T17:48:19.299Z" },
-    { url = "https://files.pythonhosted.org/packages/ab/87/c6c0b7ee71c34b3d919e407179624809eb8e84f5871d3d5583ce6c829403/rookie_cookies-0.6.0-cp311-abi3-win_amd64.whl", hash = "sha256:25c9861870f3a5f4b46221e337172a512bf4b755a4c00a44e355155ddb42593b", size = 2620104, upload-time = "2026-08-23T17:48:23.7Z" },
 ]
 
 [[package]]

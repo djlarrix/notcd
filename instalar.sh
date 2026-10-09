@@ -24,7 +24,7 @@ principal() {
   local SIN_DESKTOP="${NOTCD_SIN_DESKTOP:-0}"
   # uv usa los certificados del sistema (redes de oficina que revisan las conexiones
   # seguras) y copia en vez de enlazar archivos.
-  export UV_NATIVE_TLS=1 UV_LINK_MODE=copy
+  export UV_SYSTEM_CERTS=1 UV_LINK_MODE=copy
   for opcion in "$@"; do
     case "$opcion" in
       --sin-login) SIN_LOGIN=1 ;;

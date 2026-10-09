@@ -68,14 +68,33 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - name: El comando de una línea, tal como lo pega un abogado
+      - name: El comando de una línea, tal como lo pega un abogado (con el Python oficial descargado de python.org)
         shell: powershell
         run: |
           $env:NOTCD_REF = '${{ github.sha }}'
           $env:NOTCD_SIN_LOGIN = '1'
           $env:NOTCD_SIN_DESKTOP = '1'
+          $env:NOTCD_DESCARGAR_PYTHON = '1'
           irm https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}/instalar.ps1 | iex
-          if (-not (Test-Path "$env:USERPROFILE\.local\bin\notcd.exe")) { throw 'notcd no quedó instalado' }
+          if (-not (Test-Path "$env:USERPROFILE\.local\bin\notcd.cmd")) { throw 'notcd no quedó instalado' }
+      - name: Lo que abre la app tiene firma digital válida (lo exige el Control inteligente de aplicaciones)
+        shell: powershell
+        run: |
+          $entorno = "$env:USERPROFILE\.notcd\entorno"
+          $py = Join-Path $entorno 'Scripts\python.exe'
+          $base = ((Get-Content (Join-Path $entorno 'pyvenv.cfg') | Where-Object { $_ -match '^home\s*=' }) -replace '^home\s*=\s*', '').Trim()
+          Write-Host "Python base: $base"
+          foreach ($exe in @($py, (Join-Path $base 'python.exe'))) {
+            $firma = Get-AuthenticodeSignature $exe
+            Write-Host "$exe -> $($firma.Status) · $($firma.SignerCertificate.Subject)"
+            if ($firma.Status -ne 'Valid') { throw "sin firma válida: $exe" }
+          }
+          if ($base -notlike "$env:LOCALAPPDATA\Programs\Python\Python312*") { throw "no usó el Python descargado de python.org: $base" }
+          $sinFirma = @(Get-ChildItem -Path (Join-Path $entorno 'Lib\site-packages') -Recurse -Include *.pyd, *.dll |
+            Where-Object { (Get-AuthenticodeSignature $_.FullName).Status -ne 'Valid' } | ForEach-Object { $_.Name })
+          Write-Host "Bibliotecas compiladas sin firma (dependen de la reputación en Windows): $($sinFirma -join ', ')"
+          & "$env:USERPROFILE\.local\bin\notcd.cmd" --version
+          if ($LASTEXITCODE -ne 0) { throw 'el comando notcd no funciona' }
       - name: Identificar qué programa tiene tomado un archivo
         shell: powershell
         run: |
@@ -92,8 +111,7 @@ jobs:
       - name: Actualizar con un archivo de notcd tomado por otro programa (como un antivirus)
         shell: powershell
         run: |
-          $tooldir = (& "$env:USERPROFILE\.local\bin\uv.exe" tool dir | Out-String).Trim()
-          $env:BLOQUEAR = Join-Path $tooldir 'notcd\Lib\site-packages\notcd\__init__.py'
+          $env:BLOQUEAR = "$env:USERPROFILE\.notcd\entorno\Lib\site-packages\notcd\__init__.py"
           if (-not (Test-Path $env:BLOQUEAR)) { throw "no existe $env:BLOQUEAR" }
           # Otro proceso toma el archivo 20 segundos y no se puede cerrar desde el instalador
           # (su línea de comandos no menciona notcd), igual que un antivirus.
@@ -103,16 +121,15 @@ jobs:
           $env:NOTCD_SIN_LOGIN = '1'
           $env:NOTCD_SIN_DESKTOP = '1'
           irm https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}/instalar.ps1 | iex
-          $log = Get-Content "$env:USERPROFILE\.notcd\instalacion.log" -Raw
           Write-Host "--- registro de la instalación ---"
-          Write-Host $log
-          $version = & "$env:USERPROFILE\.local\bin\notcd.exe" --version
+          Write-Host (Get-Content "$env:USERPROFILE\.notcd\instalacion.log" -Raw)
+          $version = & "$env:USERPROFILE\.local\bin\notcd.cmd" --version
           if ($LASTEXITCODE -ne 0 -or -not $version) { throw 'notcd no quedó instalado' }
           Write-Host "Instalado: $version"
       - name: Simular el conector de notcd en uso (como si la app lo tuviera abierto)
         shell: powershell
         run: |
-          $python = Join-Path (& "$env:USERPROFILE\.local\bin\uv.exe" tool dir) 'notcd\Scripts\python.exe'
+          $python = "$env:USERPROFILE\.notcd\entorno\Scripts\python.exe"
           Start-Process -FilePath $python -ArgumentList '-c', '"import time; time.sleep(900)"', '-m', 'notcd', 'servidor' -WindowStyle Hidden
           Start-Sleep -Seconds 3
           $vivos = @(Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match '-m notcd servidor' })
@@ -135,5 +152,5 @@ jobs:
       - name: Diagnóstico
         shell: powershell
         run: |
-          & "$env:USERPROFILE\.local\bin\notcd.exe" diagnostico
+          & "$env:USERPROFILE\.local\bin\notcd.cmd" diagnostico
           exit 0

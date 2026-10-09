@@ -100,7 +100,12 @@ function Explicar-Error($Salida, $Carpetas) {
     Malo 'No se pudo instalar notcd. El error fue:'
     ($Salida -split "`r?`n" | Where-Object { $_.Trim() } | Select-Object -Last 8) | ForEach-Object { Write-Host "        $_" -ForegroundColor DarkGray }
     Write-Host ''
-    if ($Salida -match 'certificate|certificado|UnknownIssuer|invalid peer|handshake') {
+    if ($Salida -match 'os error 4551|Control de aplicaciones|Application Control') {
+        Atencion 'Windows (Control inteligente de aplicaciones) bloqueó un archivo sin firma digital.'
+        Atencion 'Si el archivo bloqueado es un .pyd o .dll, Windows aún no reconoce esa biblioteca:'
+        Atencion 'suele aceptarla al rato, así que espera unos minutos y vuelve a pegar el comando.'
+        Atencion 'Si se repite, envía este mensaje (o el registro de abajo) a quien te ayuda con la instalación.'
+    } elseif ($Salida -match 'certificate|certificado|UnknownIssuer|invalid peer|handshake') {
         Atencion 'La red de tu oficina revisa las conexiones seguras y uv no confia en ella.'
         Atencion 'Pide al equipo de TI que permita pypi.org, files.pythonhosted.org y github.com,'
         Atencion 'o prueba desde otra red (por ejemplo, el telefono como punto de acceso).'
@@ -131,6 +136,81 @@ function Explicar-Error($Salida, $Carpetas) {
     Atencion "El detalle completo quedo en: $script:Log"
 }
 
+function Get-ControlApps {
+    # Control inteligente de aplicaciones de Windows 11: 0 desactivado, 1 activado, 2 en evaluación.
+    try {
+        $v = (Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\CI\Policy' -Name VerifiedAndReputablePolicyState -ErrorAction Stop).VerifiedAndReputablePolicyState
+        return [int]$v
+    } catch { return 0 }
+}
+
+function Test-Firmado($Exe) {
+    $firma = Get-AuthenticodeSignature -FilePath $Exe -ErrorAction SilentlyContinue
+    return ($firma -and $firma.Status -eq 'Valid')
+}
+
+function Get-VersionPython($Exe) {
+    $v = (& $Exe -c "import sys; print('%d.%d' % sys.version_info[:2])" 2>$null | Out-String).Trim()
+    return $v
+}
+
+function Find-PythonFirmado {
+    # Un Python oficial (firmado digitalmente) ya instalado, de 3.10 a 3.14.
+    $candidatos = @()
+    $py = (Get-Command py.exe -ErrorAction SilentlyContinue).Source
+    if ($py) {
+        foreach ($v in '3.12', '3.13', '3.11', '3.10', '3.14') {
+            $ruta = (& $py "-$v" -c "import sys; print(sys.executable)" 2>$null | Out-String).Trim()
+            if ($ruta) { $candidatos += $ruta }
+        }
+    }
+    foreach ($base in @((Join-Path $env:LOCALAPPDATA 'Programs\Python'), $env:ProgramFiles)) {
+        if ($base -and (Test-Path $base)) {
+            $candidatos += @(Get-ChildItem -Path $base -Directory -Filter 'Python3*' -ErrorAction SilentlyContinue |
+                ForEach-Object { Join-Path $_.FullName 'python.exe' })
+        }
+    }
+    foreach ($c in ($candidatos | Select-Object -Unique)) {
+        # El python.exe de WindowsApps es un acceso directo a la tienda, no un Python.
+        if (-not (Test-Path $c) -or $c -match '\\WindowsApps\\') { continue }
+        if ((Get-VersionPython $c) -notin '3.10', '3.11', '3.12', '3.13', '3.14') { continue }
+        if (Test-Firmado $c) { return $c }
+    }
+    return $null
+}
+
+function Install-PythonOficial {
+    # Python 3.12 oficial de python.org, sólo para este usuario (sin permisos de
+    # administrador). Antes de ejecutarlo se comprueba que lo firma la Python Software
+    # Foundation.
+    $version = '3.12.10'
+    $arq = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'amd64' }
+    $instalador = Join-Path $env:TEMP "python-$version-$arq.exe"
+    Invoke-WebRequest -Uri "https://www.python.org/ftp/python/$version/python-$version-$arq.exe" -OutFile $instalador -UseBasicParsing -ErrorAction Stop
+    $firma = Get-AuthenticodeSignature -FilePath $instalador
+    if ($firma.Status -ne 'Valid' -or $firma.SignerCertificate.Subject -notmatch 'Python Software Foundation') {
+        Remove-Item $instalador -Force -ErrorAction SilentlyContinue
+        throw 'El instalador de Python descargado no tiene una firma válida de la Python Software Foundation.'
+    }
+    $opciones = '/quiet', 'InstallAllUsers=0', 'PrependPath=0', 'Include_launcher=0', 'Include_test=0',
+        'Include_doc=0', 'Include_tcltk=0', 'Shortcuts=0', 'AssociateFiles=0'
+    $proceso = Start-Process -FilePath $instalador -ArgumentList $opciones -Wait -PassThru
+    Remove-Item $instalador -Force -ErrorAction SilentlyContinue
+    if ($proceso.ExitCode -ne 0) { throw "El instalador de Python terminó con el código $($proceso.ExitCode)." }
+    $exe = Join-Path $env:LOCALAPPDATA 'Programs\Python\Python312\python.exe'
+    if (-not (Test-Path $exe)) { throw "Python no quedó en $exe." }
+    return $exe
+}
+
+function Add-RutaUsuario($Carpeta) {
+    # Que el comando notcd se encuentre en ventanas nuevas de PowerShell.
+    $actual = [Environment]::GetEnvironmentVariable('Path', 'User')
+    if (-not (($actual -split ';') -contains $Carpeta)) {
+        [Environment]::SetEnvironmentVariable('Path', ($(if ($actual) { "$actual;" } else { '' }) + $Carpeta), 'User')
+    }
+    if (-not (($env:Path -split ';') -contains $Carpeta)) { $env:Path = "$env:Path;$Carpeta" }
+}
+
 # ------------------------------------------------------------------ instalacion
 
 function Instalar-Notcd {
@@ -152,22 +232,39 @@ function Instalar-Notcd {
     # uv usa los certificados de Windows (las redes de oficina que revisan las conexiones
     # seguras ponen los suyos ahi) y copia en vez de enlazar archivos (menos choques con
     # el antivirus).
-    $env:UV_NATIVE_TLS = '1'
+    $env:UV_SYSTEM_CERTS = '1'
     $env:UV_LINK_MODE = 'copy'
 
     Write-Host ''
     Write-Host '  NOTCD' -ForegroundColor White
     Write-Host '  NotebookLM para el estudio' -ForegroundColor Cyan
 
-    # ------------------------------------------------------------- 1. uv
-    Paso 1 'Comprobando uv (instala y aísla Python para notcd)'
+    # ------------------------------------------------------- 1. Python y uv
+    Paso 1 'Preparando Python (el oficial, con firma digital) y uv'
+    # Windows bloquea los programas sin firma digital cuando está activo el Control
+    # inteligente de aplicaciones (y puede activarse más adelante). Por eso notcd corre
+    # siempre sobre el Python oficial de python.org, que viene firmado.
+    $control = Get-ControlApps
+    if ($control -eq 1) { Ok 'Control inteligente de aplicaciones: activado (por eso se usa el Python oficial firmado).' }
+    elseif ($control -eq 2) { Ok 'Control inteligente de aplicaciones: en evaluación.' }
+    $PythonBase = if ($env:NOTCD_DESCARGAR_PYTHON -eq '1') { $null } else { Find-PythonFirmado }
+    if ($PythonBase) {
+        Ok "Python oficial: ya está ($PythonBase)"
+    } else {
+        Ok 'Python oficial: no está. Instalándolo desde python.org (uno o dos minutos)...'
+        try { $PythonBase = Install-PythonOficial } catch {
+            Malo "No se pudo instalar Python: $($_.Exception.Message)"
+            Malo 'Revisa internet; en la red de la oficina, puede que el firewall bloquee python.org.'
+            return
+        }
+        Ok "Python oficial: instalado ($PythonBase)"
+    }
+
     $Uv = (Get-Command uv -ErrorAction SilentlyContinue).Source
     $UvLocal = Join-Path $env:USERPROFILE '.local\bin\uv.exe'
     if (-not $Uv -and (Test-Path $UvLocal)) { $Uv = $UvLocal }
-    if ($Uv) {
-        Ok "Ya está: $(& $Uv --version)"
-    } else {
-        Ok 'No está. Instalándolo desde astral.sh (el sitio oficial de uv)...'
+    if (-not $Uv) {
+        Ok 'uv: no está. Instalándolo desde astral.sh (el sitio oficial de uv)...'
         powershell -NoProfile -ExecutionPolicy ByPass -Command "irm https://astral.sh/uv/install.ps1 | iex" 2>&1 |
             ForEach-Object { "$_" } | Out-File -FilePath $script:Log -Append -Encoding utf8
         $Uv = $UvLocal
@@ -176,9 +273,8 @@ function Instalar-Notcd {
             Malo "Detalle en: $script:Log"
             return
         }
-        Ok "Instalado: $(& $Uv --version)"
     }
-    $DirHerramientas = (& $Uv tool dir 2>$null | Out-String).Trim()
+    Ok "uv: $(& $Uv --version)"
 
     # ------------------------------------------------------ 2. notcd
     Paso 2 'Descargando e instalando notcd'
@@ -205,17 +301,41 @@ function Instalar-Notcd {
     # Al actualizar, Windows no deja reemplazar archivos en uso: se detiene el conector de
     # notcd si la app lo tenía abierto (la app lo vuelve a abrir al reiniciarse).
     if ((Stop-ProcesosPropios $Anterior) -gt 0) { Ok 'Se detuvo el conector de notcd que estaba en uso.' }
-    if ((& $Uv tool list 2>$null | Out-String) -match "(?m)^$Anterior ") {
-        & $Uv tool uninstall $Anterior 2>&1 | ForEach-Object { "$_" } | Out-File -FilePath $script:Log -Append -Encoding utf8
-        if ($LASTEXITCODE -eq 0) { Ok 'Desinstalada la versión anterior' }
+    # Instalaciones anteriores con uv tool (la versión anterior y las primeras de notcd)
+    # dejaban lanzadores .exe sin firma: se quitan.
+    $herramientas = (& $Uv tool list 2>$null | Out-String)
+    foreach ($vieja in @($Anterior, 'notcd')) {
+        if ($herramientas -match "(?m)^$vieja ") {
+            & $Uv tool uninstall $vieja 2>&1 | ForEach-Object { "$_" } | Out-File -FilePath $script:Log -Append -Encoding utf8
+            if ($vieja -eq $Anterior -and $LASTEXITCODE -eq 0) { Ok 'Desinstalada la versión anterior' }
+        }
+    }
+
+    # El entorno de notcd: un entorno virtual del Python oficial. Su python.exe es el
+    # lanzador oficial, también firmado.
+    $Entorno = Join-Path $Casa 'entorno'
+    $Py = Join-Path $Entorno 'Scripts\python.exe'
+    $recrear = -not (Test-Path $Py)
+    if (-not $recrear) {
+        $cfg = Join-Path $Entorno 'pyvenv.cfg'
+        $home_ = if (Test-Path $cfg) { ((Get-Content $cfg | Where-Object { $_ -match '^home\s*=' }) -replace '^home\s*=\s*', '').Trim() } else { '' }
+        $recrear = -not ($home_ -and (Test-Path (Join-Path $home_ 'python.exe')) -and (Test-Firmado (Join-Path $home_ 'python.exe')))
+    }
+    if ($recrear) {
+        if (Test-Path $Entorno) { Remove-Item $Entorno -Recurse -Force -ErrorAction SilentlyContinue }
+        & $PythonBase -m venv $Entorno 2>&1 | ForEach-Object { "$_" } | Out-File -FilePath $script:Log -Append -Encoding utf8
+        if (-not (Test-Path $Py)) {
+            Malo 'No se pudo crear el entorno de Python de notcd.'
+            Malo "Detalle en: $script:Log"
+            return
+        }
     }
 
     Ok 'Instalando componentes (la primera vez tarda uno o dos minutos)...'
-    $CarpetasPropias = @((Join-Path $DirHerramientas 'notcd'), (Join-Path $env:USERPROFILE '.local\bin'))
     $instalado = $false
     for ($intento = 1; $intento -le 3; $intento++) {
         # "$_" convierte cada línea de stderr en su texto, sin el ruido que agrega PowerShell 5.
-        $salida = (& $Uv tool install --force --upgrade --reinstall-package notcd --python 3.12 $Fuente 2>&1 |
+        $salida = (& $Uv pip install --python $Py --upgrade --reinstall-package notcd $Fuente 2>&1 |
             ForEach-Object { "$_" }) -join "`n"
         $codigo = $LASTEXITCODE
         $salida | Out-File -FilePath $script:Log -Append -Encoding utf8
@@ -226,23 +346,39 @@ function Instalar-Notcd {
         Start-Sleep -Seconds (8 * $intento)
     }
     if (-not $instalado) {
-        Explicar-Error $salida $CarpetasPropias
+        Explicar-Error $salida @($Entorno)
         return
     }
-    $Notcd = Join-Path (& $Uv tool dir --bin) 'notcd.exe'
-    if (-not (Test-Path $Notcd)) { Malo "No quedó instalado el comando notcd ($Notcd)."; return }
-    Ok "Instalado: $(& $Notcd --version)"
+    # Cargar de verdad notcd y sus bibliotecas compiladas: si Windows bloquea alguna, se
+    # sabe ahora y no cuando la app intente abrir el conector.
+    $prueba = (& $Py -c "import notcd.server, notebooklm, pydantic_core; import notcd; print(notcd.__version__)" 2>&1 |
+        ForEach-Object { "$_" }) -join "`n"
+    $prueba | Out-File -FilePath $script:Log -Append -Encoding utf8
+    if ($LASTEXITCODE -ne 0) {
+        Explicar-Error $prueba @($Entorno)
+        return
+    }
+    Ok "Instalado: notcd $(($prueba -split "`n")[-1].Trim())"
+
+    # El comando notcd para la terminal: un .cmd que llama al Python firmado (los
+    # lanzadores .exe que generan las herramientas de Python no tienen firma).
+    $Bin = Join-Path $env:USERPROFILE '.local\bin'
+    New-Item -ItemType Directory -Force -Path $Bin | Out-Null
+    # %USERPROFILE% en vez de la ruta escrita: un .cmd no tolera tildes en las rutas.
+    $PyCmd = if ($Py.StartsWith($env:USERPROFILE)) { '%USERPROFILE%' + $Py.Substring($env:USERPROFILE.Length) } else { $Py }
+    Set-Content -Path (Join-Path $Bin 'notcd.cmd') -Encoding ascii -Value "@echo off`r`n`"$PyCmd`" -m notcd %*"
+    Add-RutaUsuario $Bin
 
     # -------------------------------------------------------- 3. Google
     Paso 3 'Conectando con tu cuenta de Google (NotebookLM)'
     if ($env:NOTCD_SIN_LOGIN -eq '1') {
         Ok 'Omitido. Para conectar después:  notcd login'
     } else {
-        & $Notcd estado *> $null
+        & $Py -m notcd estado *> $null
         if ($LASTEXITCODE -eq 0) {
-            & $Notcd estado
+            & $Py -m notcd estado
         } else {
-            & $Notcd login
+            & $Py -m notcd login
             if ($LASTEXITCODE -ne 0) {
                 Malo 'El inicio de sesión no terminó. Puedes reintentarlo después con:  notcd login'
                 Malo 'o pidiéndole al asistente: «Conéctate a NotebookLM».'
@@ -252,7 +388,7 @@ function Instalar-Notcd {
 
     # ---------------------------------------------------------- 4. Apps
     Paso 4 'Registrando notcd en la app de escritorio y en la app de código'
-    if ($env:NOTCD_SIN_DESKTOP -eq '1') { & $Notcd configurar --sin-desktop } else { & $Notcd configurar --esperar }
+    if ($env:NOTCD_SIN_DESKTOP -eq '1') { & $Py -m notcd configurar --sin-desktop } else { & $Py -m notcd configurar --esperar }
     if ($LASTEXITCODE -ne 0) { Malo 'Hubo problemas al registrar; revisa los mensajes de arriba.' }
 
     # --------------------------------------------------------- 5. Listo

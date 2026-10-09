@@ -95,6 +95,11 @@ def modo() -> str:
     raiz = raiz_proyecto()
     if (raiz / "manifest.json").is_file() and (raiz / "pyproject.toml").is_file():
         return "extension"
+    try:
+        if Path(sys.prefix).resolve() == (INICIO / "entorno").resolve():
+            return "entorno"  # Windows: entorno del Python oficial firmado
+    except OSError:
+        pass
     if "uv/tools/notcd" in sys.prefix.replace("\\", "/") or "uv\\tools\\notcd" in sys.prefix:
         return "uv-tool"
     return "desarrollo"
@@ -114,7 +119,7 @@ def buscar_uv() -> str | None:
 def _correr(comando: list[str], cwd: Path | None = None) -> subprocess.CompletedProcess:
     # Certificados del sistema (redes de oficina que revisan las conexiones seguras) y copia
     # de archivos en vez de enlaces (menos choques con el antivirus en Windows).
-    entorno = {**os.environ, "UV_NATIVE_TLS": "1", "UV_LINK_MODE": "copy"}
+    entorno = {**os.environ, "UV_SYSTEM_CERTS": "1", "UV_LINK_MODE": "copy"}
     return subprocess.run(
         comando, cwd=cwd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300,
         stdin=subprocess.DEVNULL, env=entorno,
@@ -137,6 +142,18 @@ def aplicar_sincrono() -> tuple[bool, str]:
             r = _correr(paso, cwd=raiz)
             if r.returncode != 0:
                 return False, "No se pudo actualizar la extensión: " + (r.stderr or r.stdout).strip()[-600:]
+    elif forma == "entorno":
+        try:
+            fuente = descargar_ultima_version(INICIO / "fuente")
+        except Exception as error:
+            return False, f"No se pudo descargar la versión nueva: {error}"
+        r = _correr([uv, "pip", "install", "--python", sys.executable, "--upgrade", "--reinstall-package", "notcd", str(fuente)])
+        if r.returncode != 0:
+            detalle = (r.stderr or r.stdout).strip()[-600:]
+            return False, (
+                "No se pudo actualizar (en Windows, si la app está abierta usa los archivos). Cierra la app "
+                "por completo y vuelve a pegar el comando de instalación.\n" + detalle
+            )
     else:
         try:
             fuente = descargar_ultima_version(INICIO / "fuente")

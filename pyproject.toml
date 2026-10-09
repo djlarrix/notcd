@@ -1,6 +1,6 @@
 [project]
 name = "notcd"
-version = "0.2.1"
+version = "0.2.2"
 description = "NotebookLM (Gemini Notebook) para el asistente de IA: servidor MCP y skill para trabajo jurídico."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -12,9 +12,11 @@ dependencies = [
   # antes avisaron con DeprecationWarning, y notcd no usa ninguna.
   "notebooklm-py[browser]>=0.8.4,<1.0",
   "mcp>=2.3,<3",
-  # Para `notcd login --cookies chrome` (tomar la sesión ya abierta en el
-  # navegador). Sólo donde hay versión precompilada: en Windows ARM no la hay.
-  "rookie-cookies>=0.1.0,<1; sys_platform == 'darwin' or (sys_platform == 'win32' and platform_machine == 'AMD64')",
+  # Para `notcd login --cookies chrome` (tomar la sesión ya abierta en el navegador).
+  # Sólo en Mac: en Windows, Chrome cifra las cookies de un modo que no se puede leer, y
+  # esta biblioteca compilada, poco común, la bloquearía el Control inteligente de
+  # aplicaciones de Windows 11.
+  "rookie-cookies>=0.1.0,<1; sys_platform == 'darwin'",
 ]
 
 [project.optional-dependencies]

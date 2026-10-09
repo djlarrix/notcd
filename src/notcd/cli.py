@@ -419,6 +419,18 @@ def actualizar(_: argparse.Namespace) -> int:
     return 0 if bien else 1
 
 
+def control_apps_windows() -> str:
+    """Estado del Control inteligente de aplicaciones (bloquea programas sin firma digital)."""
+    try:
+        import winreg
+
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\CI\Policy") as clave:
+            valor, _ = winreg.QueryValueEx(clave, "VerifiedAndReputablePolicyState")
+    except OSError:
+        return "desactivado o no disponible"
+    return {0: "desactivado", 1: "activado", 2: "en evaluación"}.get(valor, f"desconocido ({valor})")
+
+
 def diagnostico(_: argparse.Namespace) -> int:
     """Todo lo que hace falta para dar soporte, sin datos de clientes."""
     import platform
@@ -431,6 +443,8 @@ def diagnostico(_: argparse.Namespace) -> int:
     nota(f"notcd {__version__} · notebooklm-py {notebooklm.__version__} · Python {platform.python_version()}")
     nota(f"Sistema: {platform.platform()}")
     nota(f"Instalación: {actualizacion.modo()} ({sys.executable})")
+    if sys.platform == "win32":
+        nota(f"Control inteligente de aplicaciones de Windows: {control_apps_windows()}")
     nota(f"Carpeta de notcd: {INICIO}")
     nota(f"Descargas: {rutas.carpeta_descargas()}")
 

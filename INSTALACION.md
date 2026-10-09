@@ -231,7 +231,7 @@ Quita notcd de las apps. Para borrar también el programa: `uv tool uninstall no
 
 Sirve sólo para la app de escritorio y no usa la Terminal. Útil si alguien no puede o no quiere pegar el comando.
 
-1. Descarga **`notcd-0.2.1.mcpb`** y **`notcd.zip`** desde la [página de versiones](https://github.com/djlarrix/notcd/releases/latest) (*Assets*).
+1. Descarga **`notcd-0.2.2.mcpb`** y **`notcd.zip`** desde la [página de versiones](https://github.com/djlarrix/notcd/releases/latest) (*Assets*).
 2. **Doble clic en el `.mcpb`** → la app muestra la extensión → **Instalar**. La primera vez tarda uno o dos minutos en estar disponible. Para confirmar: *Configuración → Extensiones* muestra **notcd** activada.
 3. Sube la skill ([punto 4](#4-subir-la-skill-a-la-app)).
 4. En una conversación nueva: *«Conéctate a NotebookLM»* y entra con Google en la ventana que se abre.
