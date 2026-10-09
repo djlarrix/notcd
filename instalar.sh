@@ -20,9 +20,11 @@ principal() {
   local REPO="djlarrix/notcd"
   local REF="${NOTCD_REF:-main}"
   local CASA="${NOTCD_HOME:-$HOME/.notcd}"
-  local FUENTE="$CASA/fuente"
   local SIN_LOGIN="${NOTCD_SIN_LOGIN:-0}"
   local SIN_DESKTOP="${NOTCD_SIN_DESKTOP:-0}"
+  # uv usa los certificados del sistema (redes de oficina que revisan las conexiones
+  # seguras) y copia en vez de enlazar archivos.
+  export UV_NATIVE_TLS=1 UV_LINK_MODE=copy
   for opcion in "$@"; do
     case "$opcion" in
       --sin-login) SIN_LOGIN=1 ;;
@@ -62,34 +64,40 @@ principal() {
   # ───────────────────────────────────────────────────────── 2. notcd
   paso 2 'Descargando e instalando notcd'
   mkdir -p "$CASA"
-  local AQUI=""
+  # Cada descarga va a una carpeta nueva (igual que en Windows) y las anteriores se borran.
+  local DESCARGAS="$CASA/fuente"
+  local DESTINO
+  DESTINO="$DESCARGAS/$(date +%Y%m%d-%H%M%S)"
+  mkdir -p "$DESTINO"
+  local AQUI="" FUENTE
   if [ -n "${BASH_SOURCE[0]:-}" ] && [ -f "${BASH_SOURCE[0]}" ]; then
     AQUI="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   fi
   if [ -n "$AQUI" ] && [ -f "$AQUI/pyproject.toml" ] && [ -d "$AQUI/src/notcd" ]; then
     # Ejecutado desde una copia del proyecto: se instala esa copia.
-    if [ "$AQUI" != "$FUENTE" ]; then
-      rm -rf "$FUENTE" && mkdir -p "$FUENTE"
-      (cd "$AQUI" && tar --exclude .git --exclude .venv --exclude __pycache__ --exclude dist --exclude build -cf - .) \
-        | (cd "$FUENTE" && tar -xf -)
-    fi
+    FUENTE="$DESTINO/notcd-local"
+    mkdir -p "$FUENTE"
+    (cd "$AQUI" && tar --exclude .git --exclude .venv --exclude __pycache__ --exclude dist --exclude build -cf - .) \
+      | (cd "$FUENTE" && tar -xf -)
     ok "Usando la copia local ($AQUI)"
   else
     # Con `curl | bash`: se descarga la última versión. Sin git (en Mac, llamar a git
     # sin las herramientas de Xcode abre un diálogo de instalación).
-    local TMP
-    TMP="$(mktemp -d)"
-    curl -fsSL "https://github.com/$REPO/archive/$REF.zip" -o "$TMP/notcd.zip"
+    curl -fsSL "https://github.com/$REPO/archive/$REF.zip" -o "$DESTINO/notcd.zip"
     if command -v unzip >/dev/null 2>&1; then
-      unzip -q "$TMP/notcd.zip" -d "$TMP"
+      unzip -q "$DESTINO/notcd.zip" -d "$DESTINO"
     else
-      python3 -m zipfile -e "$TMP/notcd.zip" "$TMP"
+      python3 -m zipfile -e "$DESTINO/notcd.zip" "$DESTINO"
     fi
-    rm -rf "$FUENTE"
-    mv "$TMP"/notcd-* "$FUENTE"
-    rm -rf "$TMP"
+    rm -f "$DESTINO/notcd.zip"
+    FUENTE="$(ls -d "$DESTINO"/notcd-* | head -n 1)"
     ok "Descargada la última versión de github.com/$REPO"
   fi
+  for vieja in "$DESCARGAS"/* "$DESCARGAS"/.[!.]*; do
+    if [ -e "$vieja" ] && [ "$vieja" != "$DESTINO" ]; then
+      rm -rf "$vieja"
+    fi
+  done
   # La versión anterior de este proyecto tenía otro nombre: se desinstala su comando
   # (la sesión de Google y lo demás los traslada notcd al configurarse).
   local ANTERIOR="not""cl""aude"

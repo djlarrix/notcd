@@ -1,6 +1,6 @@
 [project]
 name = "notcd"
-version = "0.2.0"
+version = "0.2.1"
 description = "NotebookLM (Gemini Notebook) para el asistente de IA: servidor MCP y skill para trabajo jurídico."
 readme = "README.md"
 requires-python = ">=3.10"

@@ -67,8 +67,12 @@ def abrir(p, navegador: str):
     except Exception as error:
         if navegador == "chromium" and "Executable doesn't exist" in str(error):
             print("    Descargando el navegador para iniciar sesión (sólo la primera vez)…", flush=True)
-            instalar_chromium()
-            return p.chromium.launch_persistent_context(**opciones)
+            try:
+                instalar_chromium()
+                return p.chromium.launch_persistent_context(**opciones)
+            except Exception as descarga:
+                # Redes de oficina que bloquean la descarga: se sigue con Chrome si está instalado.
+                raise SinNavegador(f"no se pudo descargar el navegador ({descarga})") from descarga
         raise SinNavegador(str(error).splitlines()[0]) from error
 
 

@@ -76,6 +76,39 @@ jobs:
           $env:NOTCD_SIN_DESKTOP = '1'
           irm https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}/instalar.ps1 | iex
           if (-not (Test-Path "$env:USERPROFILE\.local\bin\notcd.exe")) { throw 'notcd no quedó instalado' }
+      - name: Identificar qué programa tiene tomado un archivo
+        shell: powershell
+        run: |
+          $env:NOTCD_SOLO_FUNCIONES = '1'
+          Invoke-Expression (Get-Content -Raw .\instalar.ps1)
+          $dir = Join-Path $env:RUNNER_TEMP 'bloqueo'
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          $archivo = Join-Path $dir 'prueba.dll'
+          Set-Content -Path $archivo -Value 'x'
+          $h = [System.IO.File]::Open($archivo, 'Open', 'Read', 'None')
+          try { $quien = @(Get-ProcesosQueBloquean @($dir)) } finally { $h.Close() }
+          Write-Host "Detectado: $quien"
+          if (-not ($quien -match "\|$PID\|")) { throw "no detectó el bloqueo: $quien" }
+      - name: Actualizar con un archivo de notcd tomado por otro programa (como un antivirus)
+        shell: powershell
+        run: |
+          $tooldir = (& "$env:USERPROFILE\.local\bin\uv.exe" tool dir | Out-String).Trim()
+          $env:BLOQUEAR = Join-Path $tooldir 'notcd\Lib\site-packages\notcd\__init__.py'
+          if (-not (Test-Path $env:BLOQUEAR)) { throw "no existe $env:BLOQUEAR" }
+          # Otro proceso toma el archivo 20 segundos y no se puede cerrar desde el instalador
+          # (su línea de comandos no menciona notcd), igual que un antivirus.
+          Start-Process powershell -WindowStyle Hidden -ArgumentList '-NoProfile', '-Command', '$h = [IO.File]::Open($env:BLOQUEAR, ''Open'', ''Read'', ''None''); Start-Sleep -Seconds 20; $h.Close()'
+          Start-Sleep -Seconds 3
+          $env:NOTCD_REF = '${{ github.sha }}'
+          $env:NOTCD_SIN_LOGIN = '1'
+          $env:NOTCD_SIN_DESKTOP = '1'
+          irm https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}/instalar.ps1 | iex
+          $log = Get-Content "$env:USERPROFILE\.notcd\instalacion.log" -Raw
+          Write-Host "--- registro de la instalación ---"
+          Write-Host $log
+          $version = & "$env:USERPROFILE\.local\bin\notcd.exe" --version
+          if ($LASTEXITCODE -ne 0 -or -not $version) { throw 'notcd no quedó instalado' }
+          Write-Host "Instalado: $version"
       - name: Simular el conector de notcd en uso (como si la app lo tuviera abierto)
         shell: powershell
         run: |

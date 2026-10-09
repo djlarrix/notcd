@@ -112,9 +112,12 @@ def buscar_uv() -> str | None:
 
 
 def _correr(comando: list[str], cwd: Path | None = None) -> subprocess.CompletedProcess:
+    # Certificados del sistema (redes de oficina que revisan las conexiones seguras) y copia
+    # de archivos en vez de enlaces (menos choques con el antivirus en Windows).
+    entorno = {**os.environ, "UV_NATIVE_TLS": "1", "UV_LINK_MODE": "copy"}
     return subprocess.run(
         comando, cwd=cwd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300,
-        stdin=subprocess.DEVNULL,
+        stdin=subprocess.DEVNULL, env=entorno,
     )
 
 
@@ -135,9 +138,8 @@ def aplicar_sincrono() -> tuple[bool, str]:
             if r.returncode != 0:
                 return False, "No se pudo actualizar la extensión: " + (r.stderr or r.stdout).strip()[-600:]
     else:
-        fuente = INICIO / "fuente"
         try:
-            descargar_ultima_version(fuente)
+            fuente = descargar_ultima_version(INICIO / "fuente")
             r = _correr([uv, "tool", "install", "--force", "--upgrade", "--reinstall-package", "notcd",
                          "--python", "3.12", str(fuente)])
         except Exception as error:  # sin internet o GitHub caído: al menos las dependencias
@@ -162,22 +164,28 @@ def aplicar_sincrono() -> tuple[bool, str]:
 REPOSITORIO = "djlarrix/notcd"
 
 
-def descargar_ultima_version(destino: Path) -> None:
-    """Reemplaza `destino` por la última versión publicada en GitHub (rama main)."""
+def descargar_ultima_version(descargas: Path) -> Path:
+    """Descarga la última versión (rama main) a una carpeta nueva y devuelve su ruta.
+
+    Siempre una carpeta nueva: en Windows no se pueden mover ni borrar archivos que otro
+    programa (el antivirus, por ejemplo) tenga abiertos. Las descargas anteriores se
+    borran si se puede; si no, quedan para la próxima vez.
+    """
     import io
-    import tempfile
     import zipfile
 
     import httpx
 
     respuesta = httpx.get(f"https://github.com/{REPOSITORIO}/archive/main.zip", follow_redirects=True, timeout=60)
     respuesta.raise_for_status()
-    with tempfile.TemporaryDirectory() as tmp:
-        zipfile.ZipFile(io.BytesIO(respuesta.content)).extractall(tmp)
-        carpeta = next(Path(tmp).glob("notcd-*"))
-        if destino.exists():
-            shutil.rmtree(destino)
-        shutil.move(str(carpeta), destino)
+    destino = descargas / time.strftime("%Y%m%d-%H%M%S")
+    destino.mkdir(parents=True, exist_ok=True)
+    zipfile.ZipFile(io.BytesIO(respuesta.content)).extractall(destino)
+    if descargas.is_dir():
+        for vieja in descargas.iterdir():
+            if vieja != destino and vieja.is_dir():
+                shutil.rmtree(vieja, ignore_errors=True)
+    return next(destino.glob("notcd-*"))
 
 
 def _version_en_disco(paquete: str = "notebooklm") -> str | None:
